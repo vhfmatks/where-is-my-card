@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+	<script type="text/javascript"
+		src="//dapi.kakao.com/v2/maps/sdk.js?appkey=a62047eb746d972a25e3f874d085cdbb&libraries=services,clusterer,drawing" dfer></script>
+	<link rel="stylesheet" type="text/css" href="pin.css">
+	<link rel="stylesheet" type="text/css" href="overlay.css">
+	<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+
+<body>
+	<div id="map" style="width:100%;height:720px;"></div>
+
+	<div>
+		<input type='text' id='srch' placeholder="검색어를 입력하세요" />
+		<input type='button' id='srchBtn' value="검색"/>
+		<div id="srchResult">
+		</div>
+	</div>
+	<div>
+		<form id='merInput' action='javascript:saveMerInfo();'>
+			<label for='mer_nm' >가맹점 명</label>
+			<input type='text' id='mer_nm' disabled/> <br>
+			<label for='mer_addr' >가맹점 주소</label>
+			<input type='text' id='mer_addr' disabled /> <br>
+			<input type='text' id='desc' disabled /> <br>
+			<input type='checkbox' id=pay_mthd1 name="payMthd" value='1' >MS</input>
+			<input type='checkbox' id=pay_mthd2 name="payMthd" value='2' >QR</input>
+			<input type='checkbox' id=pay_mthd3 name="payMthd" value='3' >KakaoPay</input>
+			<input type='hidden' id='x'/><input type='hidden' id='y'/>
+			<input type='submit' value='저장' />
+		</form>
+	</div>
+	<!-- The core Firebase JS SDK is always required and must be listed first -->
+	<script src="https://www.gstatic.com/firebasejs/7.23.0/firebase-app.js" dfer></script>
+
+	<!-- TODO: Add SDKs for Firebase products that you want to use
+		https://firebase.google.com/docs/web/setup#available-libraries -->
+	<script src="https://www.gstatic.com/firebasejs/7.23.0/firebase-analytics.js" dfer></script>
+	<script src="https://www.gstatic.com/firebasejs/7.23.0/firebase-database.js" dfer></script>
+	<script src="js/db.js" defer></script>
+	<script>
+
+	</script>
+</body>
+<script>
+	var srchButtonElement = document.getElementById('srchBtn');
+	var srchTextInput = document.getElementById('srch');
+	var merForm = document.getElementById('merInput');
+	srchButtonElement.addEventListener('click', function(){
+		searchAddrFromKeyword(srchTextInput.value);
+	})
+	srchTextInput.addEventListener('keyup', () => {
+		if(srchTextInput.value.length >= 3)
+			searchAddrFromKeyword(srchTextInput.value);
+	})
+	// srchTextInput.keyup( (e) => { if(e.keyCode== 13 ) searchAddrFromKeyword(srchTextInput.value); })
+
+
+	var srchResultDiv = document.getElementById('srchResult');
+	function searchAddrFromKeyword(srchKey){
+		var url = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${srchKey}`;
+		axios.request({
+			method : 'GET',
+			url : url,
+			headers : {
+				"Authorization":"KakaoAK 6d623db42c62a7b4d05667ec5352a03c"
+			}
+		}).then( response=> {
+			var content = [];
+			response.data.documents.forEach( (element,index) => {
+				console.log( element.address_name
+							, element.category_group_name
+							, element.category_name
+							, element.place_name
+							, element.road_address_name
+							, element.x , element.y)
+				content.push(
+					`
+						<li>
+							${index}
+							, ${element.place_name}
+							, <a href="javascript:selectMerAddr('${element.place_name}','${element.road_address_name}','${element.x}','${element.y}','${element.category_name}');">${element.address_name}</a>
+						</li>	
+					`
+				)
+			});
+			srchResultDiv.innerHTML = content.join("");
+		});
+	}
+	function selectMerAddr(place_name, road_address_name, x, y , desc){
+		document.querySelector('#merInput #mer_nm').value = place_name;
+		document.querySelector('#merInput #mer_addr').value = road_address_name;
+		document.querySelector('#merInput #x').value = x;
+		document.querySelector('#merInput #y').value = y;
+		document.querySelector('#merInput #desc').value = desc;
+	}
+	function saveMerInfo(){
+		// writeMerInfo(merNm, merAddr, merPayMthd, x, y, desc)
+		var merPayMthd = []
+
+		document.getElementsByName('payMthd').forEach( element => {
+			if(element.checked) merPayMthd.push(element.value);
+		});
+
+		if( merPayMthd.length == 0 )
+			return alert('결제 방법을 1개 이상 선택하세요...');
+
+		var merNm = document.querySelector('#merInput #mer_nm').value ;
+		var merAddr = document.querySelector('#merInput #mer_addr').value ;
+		var x = document.querySelector('#merInput #x').value ;
+		var y = document.querySelector('#merInput #y').value ;
+		var desc = document.querySelector('#merInput #desc').value ;
+
+		writeMerInfo(merNm, merAddr, merPayMthd, x, y, desc , (result) =>{
+			alert(result); 
+			merForm.reset();
+			srchTextInput.reset();
+			srchResultDiv.innerHTML = '';
+		});
+	}
+	var prevMarker = null;
+	var container = document.getElementById('map'); //지도를 담을 영역의 DOM 레퍼런스
+	var options = { //지도를 생성할 때 필요한 기본 옵션
+		center: new kakao.maps.LatLng(37.566370, 126.996760), //지도의 중심좌표.
+		level: 3, //지도의 레벨(확대, 축소 정도)
+		drawingMode: [ // drawing manager로 제공할 그리기 요소 모드
+			kakao.maps.drawing.OverlayType.MARKER,
+			kakao.maps.drawing.OverlayType.POLYLINE,
+			kakao.maps.drawing.OverlayType.RECTANGLE,
+			kakao.maps.drawing.OverlayType.CIRCLE,
+			kakao.maps.drawing.OverlayType.POLYGON
+		],
+		guideTooltip: ['draw', 'drag', 'edit'], // 사용자에게 제공할 그리기 가이드 툴팁
+		markerOptions: {
+			draggable: true,
+			removable: true,
+			markerImages: [
+				null, // API에서 제공하는 기본 마커 이미지
+				{
+					src: 'https://t1.daumcdn.net/localimg/localimages/07/2009/map/icon/ico_mn_13.png',
+					width: 31,
+					height: 35,
+					shape: 'rect',
+					coords: '0,0,31,35',
+					hoverImage: {
+						src: 'https://t1.daumcdn.net/localimg/localimages/07/2012/img/marker_normal.png',
+						width: 33,
+						height: 36,
+						offsetX: 12,
+						offsetY: 36,
+						spriteWidth: 644,
+						spriteHeight: 946,
+						spriteOriginX: 10,
+						spriteOriginY: 10
+					},
+					dragImage: {
+						src: 'https://t1.daumcdn.net/localimg/localimages/07/2012/attach/pc_img/ico_comm.png',
+						width: 20, // 마커 크기
+						height: 20, // 마커 크기
+						offsetX: 10, // 지도에 고정시킬 이미지 내 위치 좌표
+						offsetY: 20, // 지도에 고정시킬 이미지 내 위치 좌표
+						spriteWidth: 118, // 이미지 전체 크기
+						spriteHeight: 111, // 이미지 전체 크기
+						spriteOriginX: 0, // 이미지 중 마커로 사용할 위치
+						spriteOriginY: 90 // 이미지 중 마커로 사용할 위치
+					}
+				}
+			]
+		}
+	};
+
+	var map = new kakao.maps.Map(container, options); //지도 생성 및 객체 리턴
+	// 지도를 클릭한 위치에 표출할 마커입니다
+	var marker = new kakao.maps.Marker({
+		// 지도 중심좌표에 마커를 생성합니다 
+		position: map.getCenter()
+	});
+	// 지도에 마커를 표시합니다
+	// marker.setMap(map);
+	// 지도에 클릭 이벤트를 등록합니다
+	// 지도를 클릭하면 마지막 파라미터로 넘어온 함수를 호출합니다
+	// kakao.maps.event.addListener(map, 'click', function(mouseEvent) {        
+
+	// 	// 클릭한 위도, 경도 정보를 가져옵니다 
+	// 	var latlng = mouseEvent.latLng; 
+
+	// 	// 마커 위치를 클릭한 위치로 옮깁니다
+	// 	//marker.setPosition(latlng);
+
+	// 	var message =  latlng.getLat() + "," + latlng.getLng() ;
+
+	// 	var resultDiv = document.getElementById('clickLatlng'); 
+	// 	console.log(message);
+	// 	//resultDiv.innerHTML = message;
+
+	// });
+	var geocoder = new kakao.maps.services.Geocoder();
+
+	function merClick(merNm, merAddr, payMthd) {
+		alert(merNm + payMthd);
+		//console.log(merNm, merAddr, payMthd)
+	}
+	function myMarker(merInfo ) {
+		var payMthdDiv = '';
+		console.log(merInfo)
+		merInfo.merPayMthd.forEach(function (e) {
+			if (e == '1') payMthdDiv += ' /MS/ ';
+			else if (e == '2') payMthdDiv += '/QR/ ';
+			else if (e == '3') payMthdDiv += ' /Kakao PAY/ ';
+		});
+		var marker = new kakao.maps.Marker({
+			map: map,
+			position: new kakao.maps.LatLng(merInfo.position.y, merInfo.position.x)
+		});
+		// var position = new kakao.maps.LatLng(
+		// 					result[0].y, result[0].x
+		// 				);
+		var content = `
+							<div class="wrap">
+								<div class="info">
+									<div class="title">
+										${merInfo.merNm}
+									</div>
+									<div class="body">
+										${merInfo.merAddr}<br>
+										${payMthdDiv}<br>
+										${merInfo.desc} 
+									</div>
+								</div>
+							</div>
+			`;
+		var overlay = new kakao.maps.CustomOverlay({
+			content: content,
+			map: map,
+			position: marker.getPosition()
+		});
+		overlay.setMap(null);
+		var isOverlay = false;
+		kakao.maps.event.addListener(map, 'click', function(){
+			overlay.setMap(null);
+			isOverlay = false;
+		})
+		kakao.maps.event.addListener(marker, 'click', function () {
+			
+			// 오버레이 출력
+			if ( !isOverlay ) {
+				overlay.setMap(map);
+				isOverlay = !isOverlay;
+			}
+			else {
+				overlay.setMap(null);
+				isOverlay = !isOverlay;
+			}
+
+		})
+	}
+
+
+	var merData = [];
+	(function () {
+		// Geolocation API에 액세스할 수 있는지를 확인
+		if (navigator.geolocation) {
+			//위치 정보를 얻기
+			navigator.geolocation.getCurrentPosition(function (pos) {
+				// tlat = pos.coords.latitude;     // 위도
+				// tlng = pos.coords.longitude; // 경도
+				console.log(pos)
+			});
+		} else {
+			alert("이 브라우저에서는 Geolocation이 지원되지 않습니다.");
+		}
+
+		var firebaseConfig = {
+			apiKey: "AIzaSyAR0DU_ySDKECkdJ_ed8SQ-OcaDdZzPRlg",
+			authDomain: "no-card-d6bd3.firebaseapp.com",
+			databaseURL: "https://no-card-d6bd3.firebaseio.com",
+			projectId: "no-card-d6bd3",
+			storageBucket: "no-card-d6bd3.appspot.com",
+			messagingSenderId: "867586373609",
+			appId: "1:867586373609:web:4af387c8ecafea0863fd78",
+			measurementId: "G-BT7BKGZ2EY"
+		};
+		// Initialize Firebase
+		firebase.initializeApp(firebaseConfig);
+		// firebase.analytics();
+		var database = firebase.database();
+		console.log("!234");
+		database.ref().child('merInfo').on('value', snap => {
+			for(const [key,value] of Object.entries(snap.val())){
+				merData.push(value);
+				// myMarker(value.merNm, value.merAddr, value.merPayMthd, value.position);
+				myMarker(value);
+			}
+		})
+	}())
+</script>
+
+</html>
